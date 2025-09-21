@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Buzzer</title>
+  <style>
+    :root {
+      --bg-white: #ffffff;
+      --red: #ef4444;
+      --btn-yellow: #870303;
+      --btn-yellow-dark: #3e1a1a;
+      --text: #ffffff;
+      --muted: #6b7280;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: var(--bg-white);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      transition: background 150ms ease;
+    }
+
+    .wrap {
+      display: grid;
+      gap: 1rem;
+      justify-items: center;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .buzz-btn {
+      appearance: none;
+      border: none;
+      background: linear-gradient(180deg, var(--btn-yellow), var(--btn-yellow-dark));
+      width: min(92vw, 420px);
+      height: min(92vw, 420px);
+      max-width: 420px;
+      max-height: 420px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, .25),
+        inset 0 -10px 16px rgba(0, 0, 0, .25),
+        inset 0 10px 20px rgba(255, 255, 255, .18);
+      cursor: pointer;
+      transition: transform 80ms ease, filter 120ms ease;
+      outline-offset: 6px;
+      touch-action: manipulation;
+      user-select: none;
+      color: #fff !important;
+    }
+
+    .buzz-btn:hover {
+      filter: brightness(1.05);
+    }
+
+    .buzz-btn:active {
+      transform: scale(0.98);
+    }
+
+    .buzz-label {
+      font-size: clamp(1.5rem, 4vw + .5rem, 2.5rem);
+      font-weight: 900;
+      letter-spacing: .1em;
+    }
+
+    .reset-btn {
+      appearance: none;
+      border: 2px solid rgba(0, 0, 0, .08);
+      background: rgba(0, 0, 0, .05);
+      color: var(--text);
+      padding: .6rem 1rem;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, transform 80ms ease;
+      outline-offset: 4px;
+    }
+
+    .reset-btn:hover {
+      background: rgba(0, 0, 0, .08);
+      border-color: rgba(0, 0, 0, .2);
+    }
+
+    .reset-btn:active {
+      transform: translateY(1px);
+    }
+
+    .buzz-btn:focus-visible,
+    .reset-btn:focus-visible {
+      outline: 3px solid #00000022;
+    }
+
+    .hint {
+      font-size: .95rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+
+<body>
+  <main class="wrap" aria-live="polite">
+    <button id="buzz" class="buzz-btn" aria-label="Play buzzer (Space/Enter)">
+      <span class="buzz-label">PUSH</span>
+    </button>
+
+    <div class="hint">Press the big button (or <kbd>Space</kbd>/<kbd>Enter</kbd>). Background stays red until reset.
+    </div>
+
+    <button id="reset" class="reset-btn" aria-label="Reset the page">Reset</button>
+  </main>
+
+  <script>
+    (() => {
+      let audioCtx = null;
+      let master = null;
+
+      const buzzBtn = document.getElementById('buzz');
+      const resetBtn = document.getElementById('reset');
+
+      function setBgWhite() { document.body.style.background = '#ffffff'; }
+      function setBgRed() { document.body.style.background = '#ef4444'; }
+
+      function resetPage() {
+        setBgWhite();
+        if (audioCtx && master) {
+          try {
+            master.gain.cancelScheduledValues(audioCtx.currentTime);
+            master.gain.setValueAtTime(0.9, audioCtx.currentTime);
+          } catch { }
+        }
+        buzzBtn.focus();
+      }
+
+      // Short, deep "breeee" buzzer (~0.7s, ~350Hz)
+      function ringBuzzer() {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          master = audioCtx.createGain();
+          master.gain.value = 0.9;
+          master.connect(audioCtx.destination);
+        } else if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+
+        const now = audioCtx.currentTime;
+        const env = audioCtx.createGain();
+        env.gain.setValueAtTime(0.0001, now);
+
+        const tAttack = 0.02, tHold = 0.5, tDecay = 0.2;
+        env.gain.exponentialRampToValueAtTime(1.0, now + tAttack);
+        env.gain.setValueAtTime(1.0, now + tAttack + tHold);
+        env.gain.exponentialRampToValueAtTime(0.0001, now + tAttack + tHold + tDecay);
+
+        // Oscillator ~350Hz (square + saw)
+        const base = 350;
+        const osc1 = audioCtx.createOscillator();
+        osc1.type = 'square';
+        osc1.frequency.setValueAtTime(base, now);
+
+        const osc2 = audioCtx.createOscillator();
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(base * 0.98, now);
+
+        const g1 = audioCtx.createGain(); g1.gain.value = 0.7;
+        const g2 = audioCtx.createGain(); g2.gain.value = 0.5;
+
+        osc1.connect(g1).connect(env);
+        osc2.connect(g2).connect(env);
+
+        // slight tremolo
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.setValueAtTime(20, now);
+        const lfoGain = audioCtx.createGain();
+        lfoGain.gain.value = 0.5;
+        lfo.connect(lfoGain).connect(env.gain);
+
+        env.connect(master);
+
+        const stopAt = now + tAttack + tHold + tDecay + 0.05;
+        [osc1, osc2, lfo].forEach(n => n.start(now));
+        [osc1, osc2, lfo].forEach(n => n.stop(stopAt));
+
+        setTimeout(() => {
+          try {
+            osc1.disconnect(); g1.disconnect();
+            osc2.disconnect(); g2.disconnect();
+            lfo.disconnect(); lfoGain.disconnect();
+            env.disconnect();
+          } catch { }
+        }, (tAttack + tHold + tDecay + 0.3) * 1000);
+      }
+
+      function handleBuzz() {
+        ringBuzzer();
+        setBgRed();
+      }
+
+      buzzBtn.addEventListener('click', handleBuzz);
+      resetBtn.addEventListener('click', resetPage);
+
+      document.addEventListener('keydown', (e) => {
+        if (e.target.tagName.toLowerCase() === 'input' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); handleBuzz(); }
+        if (e.key.toLowerCase() === 'r') { e.preventDefault(); resetPage(); }
+      });
+    })();
+  </script>
+</body>
+
+</html>
